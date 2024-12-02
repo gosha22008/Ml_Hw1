@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from typing import List
 from pickle import load
@@ -54,10 +54,14 @@ def load_model(file_name):
     return model
 
 #предобработка данных
-def preproccessing_data(data):
+def preproccessing_data(data, file_true=False):
+
+    #если передан параметр file_true значит передали file.csv
+    if file_true:
+        data = pd.read_csv(data.file)
 
     #преобразование данных в DataFrame
-    data = pd.DataFrame(data, index=[0])
+    else: data = pd.DataFrame(data, index=[0])
 
     #удаление единиц измерения из данных и приведение к типу float
     def drop_km(df, features:list):
@@ -105,27 +109,30 @@ def preproccessing_data(data):
     #StandardScaler
     scal = load_scaler('standartscaler.pkl')
     X_scal = scal.transform(X)
-
     return X_scal
 
 # предсказание моделью 
 def get_predict_price(data):
-    data = data.dict()
-    data = preproccessing_data(data)
+    file_true=1
+    if 'filename' not in dir(data):
+        file_true=0
+        data = data.dict()
+    data = preproccessing_data(data, file_true)
     model = load_model('model.pkl') 
     prediction = model.predict(data)
-    return prediction[0]
+    return prediction
     
-
-# предсказать знаяение одного объекта
+# предсказать значение одного объекта
 @app.post("/predict_item")
 def predict_item(item: Item) -> float:
+    print(dir(item))
     return get_predict_price(item)
 
-# предсказать значения списка объектов
+# предсказать объекты из csv файла
 @app.post("/predict_items")
-def predict_items(items: List[Item]) -> List[float]:
-    predictions = []
-    for item in items:
-        predictions.append(get_predict_price(item))
-    return predictions
+def predict_items(file: UploadFile=File(description="Загрузите CSV файл")) -> List[float]:
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Поддерживается только тип файла csv")
+    if file:
+        prediction = get_predict_price(file)
+    return prediction
